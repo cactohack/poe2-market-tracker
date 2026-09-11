@@ -1,0 +1,70 @@
+name: Update market data
+
+on:
+  schedule:
+    - cron: "5 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch latest currency data from poe.ninja
+        run: |
+          set -e
+          LEAGUE=$(curl -s -H "User-Agent: poe2-market-tracker (github.com/cactohack/poe2-market-tracker)" \
+            "https://poe.ninja/poe2/api/economy/leagues" | python3 -c "import sys, json; print(json.load(sys.stdin)[0]['id'])")
+          echo "League: $LEAGUE"
+          ENC_LEAGUE=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$LEAGUE")
+          curl -s -H "User-Agent: poe2-market-tracker (github.com/cactohack/poe2-market-tracker)" \
+            "https://poe.ninja/poe2/api/economy/exchange/current/overview?league=$ENC_LEAGUE&type=Currency" \
+            -o raw.json
+
+          python3 - "$LEAGUE" <<'PYEOF'
+          import json, sys, datetime
+
+          league = sys.argv[1]
+          with open("raw.json") as f:
+              data = json.load(f)
+
+          lines = {l["id"]: l for l in data["lines"]}
+
+          def val(cid):
+              return lines[cid]["primaryValue"] if cid in lines else None
+
+          divine_chaos = None
+          divine_exalted = None
+          chaos = val("chaos")
+          exalted = val("exalted")
+          if chaos:
+              divine_chaos = 1 / chaos
+          if exalted:
+              divine_exalted = 1 / exalted
+
+          out = {
+              "league": league,
+              "updated_utc": datetime.datetime.utcnow().isoformat() + "Z",
+              "divine_to_chaos": round(divine_chaos, 2) if divine_chaos else None,
+              "divine_to_exalted": round(divine_exalted, 1) if divine_exalted else None,
+              "chaos_to_exalted": round(divine_exalted / divine_chaos, 2) if divine_chaos and divine_exalted else None,
+          }
+
+          with open("data.json", "w") as f:
+              json.dump(out, f, indent=2)
+          print(out)
+          PYEOF
+
+          rm -f raw.json
+
+      - name: Commit updated data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data.json
+          git diff --quiet --cached || git commit -m "Update market data [automated]"
+          git push
