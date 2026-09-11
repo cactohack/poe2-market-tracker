@@ -13,23 +13,57 @@
   td.num { text-align:right; font-variant-numeric: tabular-nums; }
   .note { color:#8b949e; font-size:14px; margin-top:24px; }
   .updated { color:#8b949e; font-size:13px; }
+  .stale { color:#f0883e; }
   a { color:#58a6ff; }
+  #status { font-size:13px; color:#8b949e; margin-top:8px; }
 </style>
 </head>
 <body>
   <h1>Path of Exile 2 &mdash; Market Ratios</h1>
-  <p>League: <span class="league">Forbidden Rites</span> (patch 0.5.5)</p>
+  <p>League: <span class="league" id="league">loading&hellip;</span></p>
   <table>
     <thead>
       <tr><th>Pair</th><th class="num">Ratio</th></tr>
     </thead>
-    <tbody>
-      <tr><td>Divine Orb &rarr; Chaos Orb</td><td class="num">1 : 10.38</td></tr>
-      <tr><td>Divine Orb &rarr; Exalted Orb</td><td class="num">1 : 269.9</td></tr>
-      <tr><td>Chaos Orb &rarr; Exalted Orb</td><td class="num">1 : ~26</td></tr>
+    <tbody id="rows">
+      <tr><td colspan="2">Loading live data&hellip;</td></tr>
     </tbody>
   </table>
-  <p class="updated">Source: poe.ninja currency exchange overview, pulled live on Sep 11, 2026.</p>
-  <p class="note">Note: PoE 2's economy is a live, player-driven market, so these ratios shift constantly, especially in a league's first weeks. Check <a href="https://poe.ninja/poe2/economy" target="_blank" rel="noopener">poe.ninja</a> directly for the latest numbers.</p>
+  <p class="updated" id="updated"></p>
+  <p id="status"></p>
+  <p class="note">Note: PoE 2's economy is a live, player-driven market, so these ratios shift constantly, especially in a league's first weeks. This page refreshes its data automatically (backed by an hourly job pulling from poe.ninja). Check <a href="https://poe.ninja/poe2/economy" target="_blank" rel="noopener">poe.ninja</a> directly for the absolute latest.</p>
+
+<script>
+async function loadData() {
+  try {
+    const res = await fetch('data.json?_=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+
+    document.getElementById('league').textContent = d.league || 'Unknown';
+
+    const rows = [];
+    if (d.divine_to_chaos) rows.push(['Divine Orb \u2192 Chaos Orb', '1 : ' + d.divine_to_chaos]);
+    if (d.divine_to_exalted) rows.push(['Divine Orb \u2192 Exalted Orb', '1 : ' + d.divine_to_exalted]);
+    if (d.chaos_to_exalted) rows.push(['Chaos Orb \u2192 Exalted Orb', '1 : ~' + d.chaos_to_exalted]);
+
+    document.getElementById('rows').innerHTML = rows.map(r =>
+      '<tr><td>' + r[0] + '</td><td class="num">' + r[1] + '</td></tr>'
+    ).join('');
+
+    const updated = new Date(d.updated_utc);
+    const ageMin = (Date.now() - updated.getTime()) / 60000;
+    const staleClass = ageMin > 180 ? 'stale' : '';
+    document.getElementById('updated').innerHTML =
+      '<span class="' + staleClass + '">Last updated: ' + updated.toLocaleString() + ' (' + Math.round(ageMin) + ' min ago)</span>';
+    document.getElementById('status').textContent = '';
+  } catch (e) {
+    document.getElementById('status').textContent = 'Could not load data.json yet: ' + e.message;
+  }
+}
+
+loadData();
+setInterval(loadData, 5 * 60 * 1000); // refresh in-page every 5 minutes
+</script>
 </body>
 </html>
